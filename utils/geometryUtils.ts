@@ -5,19 +5,21 @@ import { BufferAttribute, BufferGeometry, Vector3 } from 'three';
  * Generates a heightmap canvas based on the input text or image and parameters.
  * Returns the ImageData context to be used for displacement.
  */
-export const generateHeightMap = (
+export const generateHeightMap = async (
   type: 'text' | 'image',
   content: string,
   width: number,
   height: number,
   options: {
     fontSize: number;
+    fontFamily?: string;
+    letterSpacing?: number;
     spacingX: number;
     spacingY: number;
     tilt: number;
     imageScale: number;
   }
-): HTMLCanvasElement => {
+): Promise<HTMLCanvasElement> => {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -34,24 +36,53 @@ export const generateHeightMap = (
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   
+  // SCALING FACTOR
+  // The UI parameters are calibrated for a standard 1024px texture.
+  // Since we use 4096px for high quality, we must scale up the drawing operations.
+  const BASE_RESOLUTION = 1024;
+  const scaleFactor = width / BASE_RESOLUTION;
+
+  const scaledFontSize = options.fontSize * scaleFactor;
+  const scaledSpacingX = options.spacingX * scaleFactor;
+  const scaledSpacingY = options.spacingY * scaleFactor;
+  const scaledLetterSpacing = (options.letterSpacing || 0) * scaleFactor;
+
   // Save context for rotation
   ctx.save();
 
   // Draw pattern
   if (type === 'text') {
-    ctx.font = `bold ${options.fontSize}px Arial`;
+    const font = options.fontFamily || 'Inter';
+    
+    // Apply letter spacing if supported (Modern Browsers)
+    // Cast to any because TS types might be outdated for canvas letterSpacing
+    try {
+      (ctx as any).letterSpacing = `${scaledLetterSpacing}px`;
+    } catch (e) {
+      // Ignore if not supported
+    }
+    
+    ctx.font = `bold ${scaledFontSize}px "${font}", sans-serif`;
+    
+    // Add text metrics measurement
     const textMetrics = ctx.measureText(content);
+    // Rough width estimation including spacing
     const textWidth = textMetrics.width;
-    const textHeight = options.fontSize; // Approx
+    const textHeight = scaledFontSize; 
 
     // Calculate grid
-    const cols = Math.ceil(width / (textWidth + options.spacingX)) + 2;
-    const rows = Math.ceil(height / (textHeight + options.spacingY)) + 2;
+    // Use the scaled dimensions to determine columns/rows
+    const cols = Math.ceil(width / (textWidth + scaledSpacingX)) + 2;
+    const rows = Math.ceil(height / (textHeight + scaledSpacingY)) + 2;
+
+    // Apply a slight blur for better normal map / displacement smoothness (Anti-aliasing)
+    // Scale blur radius slightly with resolution, but keep it tight for sharpness.
+    ctx.filter = `blur(${1 * (scaleFactor * 0.5)}px)`;
 
     for (let i = -1; i < cols; i++) {
       for (let j = -1; j < rows; j++) {
-        const x = i * (textWidth + options.spacingX);
-        const y = j * (textHeight + options.spacingY);
+        const x = i * (textWidth + scaledSpacingX);
+        const y = j * (textHeight + scaledSpacingY);
 
         ctx.save();
         ctx.translate(x, y);
@@ -61,26 +92,61 @@ export const generateHeightMap = (
       }
     }
   } else if (type === 'image' && content) {
+    // Determine file type handling
+    // For SVG or Images, we load them into an Image object
     const img = new Image();
-    img.src = content;
     
-    if (img.complete && img.naturalWidth > 0) {
+    // Wrap image loading in a promise to handle sync/async nature
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = reject;
+      img.src = content;
+    });
+
+    if (img.naturalWidth > 0) {
        const aspect = img.naturalWidth / img.naturalHeight;
-       const drawWidth = 50 * options.imageScale * aspect;
-       const drawHeight = 50 * options.imageScale;
+       // Base size 100px * scale * resolutionFactor
+       const baseDrawSize = 100 * scaleFactor;
+       const drawWidth = baseDrawSize * options.imageScale * aspect;
+       const drawHeight = baseDrawSize * options.imageScale;
        
-       const cols = Math.ceil(width / (drawWidth + options.spacingX)) + 2;
-       const rows = Math.ceil(height / (drawHeight + options.spacingY)) + 2;
+       const cols = Math.ceil(width / (drawWidth + scaledSpacingX)) + 2;
+       const rows = Math.ceil(height / (drawHeight + scaledSpacingY)) + 2;
+       
+       // Prepare a single instance of the image as a "White Silhouette"
+       // This ensures "Internal Filled Full" behavior for logos/shapes
+       const stamp = document.createElement('canvas');
+       // Make stamp large enough for high quality
+       stamp.width = Math.ceil(drawWidth * 1.5); 
+       stamp.height = Math.ceil(drawHeight * 1.5);
+       const sCtx = stamp.getContext('2d');
+       
+       if (sCtx) {
+           sCtx.translate(stamp.width/2, stamp.height/2);
+           // Draw original image
+           sCtx.drawImage(img, -drawWidth/2, -drawHeight/2, drawWidth, drawHeight);
+           
+           // Force non-transparent pixels to be white (fill inside)
+           // This uses the alpha channel of the image to define the shape,
+           // but fills the color with pure white.
+           sCtx.globalCompositeOperation = 'source-in';
+           sCtx.fillStyle = '#FFFFFF';
+           sCtx.fillRect(-stamp.width/2, -stamp.height/2, stamp.width, stamp.height);
+       }
+
+       // Apply blur for smoother edges on SVGs/Images too
+       ctx.filter = `blur(${1 * (scaleFactor * 0.5)}px)`;
 
        for (let i = -1; i < cols; i++) {
         for (let j = -1; j < rows; j++) {
-          const x = i * (drawWidth + options.spacingX);
-          const y = j * (drawHeight + options.spacingY);
+          const x = i * (drawWidth + scaledSpacingX);
+          const y = j * (drawHeight + scaledSpacingY);
   
           ctx.save();
           ctx.translate(x, y);
           ctx.rotate((options.tilt * Math.PI) / 180);
-          ctx.drawImage(img, -drawWidth/2, -drawHeight/2, drawWidth, drawHeight);
+          // Draw the prepared white silhouette stamp
+          ctx.drawImage(stamp, -stamp.width/2, -stamp.height/2);
           ctx.restore();
         }
       }
@@ -150,7 +216,7 @@ export const applyDisplacement = (
     }
 
     // 4. FIX MIRRORING / REVERSED TEXT
-    // Use u directly instead of (1-u) to fix reversed text.
+    // Use u directly.
     let px = Math.floor(u * width) % width;
     let py = Math.floor(v * height) % height;
     
@@ -158,18 +224,22 @@ export const applyDisplacement = (
     if (py < 0) py += height;
 
     const index = (py * width + px) * 4;
+    // Normalized height 0..1
     const rawHeight = data[index] / 255.0;
 
-    // SHARPENING LOGIC:
-    // Tight threshold range to create sharp, steep walls instead of sloped hills.
-    // Adjusted to 0.4 - 0.6 to ensure better visibility if anti-aliasing is soft.
-    let heightValue = 0;
-    const minT = 0.40; 
-    const maxT = 0.60; 
+    // SHARPENING LOGIC with SMOOTHSTEP
+    // Instead of a hard cliff, we use a smoothstep for a slightly more organic but still distinct edge.
+    // This reduces "tearing" and jagged pixels.
+    // Range 0.45 -> 0.55 gives a relatively sharp edge with a small transition zone.
     
-    if (rawHeight > minT) {
-        heightValue = (rawHeight - minT) / (maxT - minT);
-        if (heightValue > 1.0) heightValue = 1.0;
+    let heightValue = 0;
+    const edgeStart = 0.40;
+    const edgeEnd = 0.60;
+    
+    if (rawHeight > edgeStart) {
+        // Hermite interpolation
+        const t = Math.min(Math.max((rawHeight - edgeStart) / (edgeEnd - edgeStart), 0), 1);
+        heightValue = t * t * (3 - 2 * t); // Smoothstep formula
     }
 
     // Apply displacement

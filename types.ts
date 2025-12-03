@@ -8,6 +8,8 @@ export interface AppState {
   patternType: PatternType;
   text: string;
   imageSrc: string | null;
+  fontFamily: string; // New: Font Selection
+  letterSpacing: number; // New: Tracking
   
   // Cylinder Dimensions
   cylinderRadius: number;
@@ -29,6 +31,8 @@ export const DEFAULT_STATE: AppState = {
   patternType: PatternType.TEXT,
   text: "VINO's LAB",
   imageSrc: null,
+  fontFamily: 'Inter',
+  letterSpacing: 2,
   cylinderRadius: 15, // Radius 15mm
   cylinderHeight: 60,
   fontSize: 120, 

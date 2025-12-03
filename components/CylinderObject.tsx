@@ -14,8 +14,9 @@ interface Props {
 const CylinderObject: React.FC<Props> = ({ config, setExportFunction }) => {
   const groupRef = useRef<THREE.Group>(null);
   
-  const TEXTURE_WIDTH = 2048;
-  const TEXTURE_HEIGHT = 2048;
+  // INCREASE RESOLUTION to 4096 for cleaner text and less aliasing
+  const TEXTURE_WIDTH = 4096;
+  const TEXTURE_HEIGHT = 4096;
 
   // Use ExtrudeGeometry logic
   const bevelSize = 1; // Chamfer width
@@ -42,8 +43,8 @@ const CylinderObject: React.FC<Props> = ({ config, setExportFunction }) => {
     const extrudeDepth = height - (2 * bevelThickness);
     
     // CRITICAL FIX: Increase 'steps' to ensure enough vertices for displacement along the height.
-    // 2 segments per mm for high fidelity.
-    const steps = Math.floor(height * 2);
+    // 4 segments per mm for VERY high fidelity and smooth edges.
+    const steps = Math.floor(height * 4);
 
     const extrudeSettings = {
       depth: extrudeDepth,
@@ -51,7 +52,7 @@ const CylinderObject: React.FC<Props> = ({ config, setExportFunction }) => {
       bevelThickness: bevelThickness,
       bevelSize: bevelSize,
       bevelSegments: 2,
-      curveSegments: 128, // High resolution for smoothness around the circle
+      curveSegments: 400, // Very high resolution for smoothness around the circle
       steps: steps 
     };
 
@@ -129,45 +130,60 @@ const CylinderObject: React.FC<Props> = ({ config, setExportFunction }) => {
 
   // Update Geometry Effect
   useEffect(() => {
-    // 1. Generate Height Map
-    const canvas = generateHeightMap(
-      config.patternType === PatternType.TEXT ? 'text' : 'image',
-      config.patternType === PatternType.TEXT ? config.text : (config.imageSrc || ''),
-      TEXTURE_WIDTH,
-      TEXTURE_HEIGHT,
-      {
-        fontSize: config.fontSize,
-        spacingX: config.spacingX,
-        spacingY: config.spacingY,
-        tilt: config.tilt,
-        imageScale: config.imageScale
+    let isCancelled = false;
+
+    const updateGeometry = async () => {
+      // 1. Generate Height Map (Async now)
+      const canvas = await generateHeightMap(
+        config.patternType === PatternType.TEXT ? 'text' : 'image',
+        config.patternType === PatternType.TEXT ? config.text : (config.imageSrc || ''),
+        TEXTURE_WIDTH,
+        TEXTURE_HEIGHT,
+        {
+          fontSize: config.fontSize,
+          fontFamily: config.fontFamily,
+          letterSpacing: config.letterSpacing,
+          spacingX: config.spacingX,
+          spacingY: config.spacingY,
+          tilt: config.tilt,
+          imageScale: config.imageScale
+        }
+      );
+
+      if (isCancelled) return;
+
+      // 2. Positive Cylinder (Left) - Emboss OUT
+      // Radius = config.cylinderRadius. Base surface is at R. Emboss goes to R + depth.
+      const posGeo = buildCylinderGeometry(config.cylinderRadius, config.cylinderHeight, 0);
+      if (posGeo) {
+        applyDisplacement(posGeo, canvas, config.embossDepth, config.cylinderRadius * 0.9);
+        if (!isCancelled) setDisplayGeoPositive(posGeo);
       }
-    );
 
-    // 2. Positive Cylinder (Left) - Emboss OUT
-    // Radius = config.cylinderRadius. Base surface is at R. Emboss goes to R + depth.
-    const posGeo = buildCylinderGeometry(config.cylinderRadius, config.cylinderHeight, 0);
-    if (posGeo) {
-      applyDisplacement(posGeo, canvas, config.embossDepth, config.cylinderRadius * 0.9);
-      setDisplayGeoPositive(posGeo);
-    }
+      // 3. Negative Cylinder (Right) - Engrave IN
+      // Radius = config.cylinderRadius + config.embossDepth. 
+      // This allows the "Positive" cylinder (R + Depth) to fit inside this one (Base R + Depth - Depth = R).
+      const outerRadius = config.cylinderRadius + config.embossDepth;
+      const negGeo = buildCylinderGeometry(outerRadius, config.cylinderHeight, 0);
+      if (negGeo) {
+        // Apply negative displacement
+        applyDisplacement(negGeo, canvas, -config.embossDepth, outerRadius * 0.9);
+        if (!isCancelled) setDisplayGeoNegative(negGeo);
+      }
+    };
 
-    // 3. Negative Cylinder (Right) - Engrave IN
-    // Radius = config.cylinderRadius + config.embossDepth. 
-    // This allows the "Positive" cylinder (R + Depth) to fit inside this one (Base R + Depth - Depth = R).
-    const outerRadius = config.cylinderRadius + config.embossDepth;
-    const negGeo = buildCylinderGeometry(outerRadius, config.cylinderHeight, 0);
-    if (negGeo) {
-      // Apply negative displacement
-      applyDisplacement(negGeo, canvas, -config.embossDepth, outerRadius * 0.9);
-      setDisplayGeoNegative(negGeo);
-    }
+    updateGeometry();
 
+    return () => {
+      isCancelled = true;
+    };
   }, [
     config.patternType,
     config.text,
     config.imageSrc,
     config.fontSize,
+    config.fontFamily,
+    config.letterSpacing,
     config.spacingX,
     config.spacingY,
     config.tilt,

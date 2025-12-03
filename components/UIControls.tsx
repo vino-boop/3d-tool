@@ -22,6 +22,15 @@ const UIControls: React.FC<Props> = ({ config, onChange, onExport }) => {
     }
   };
 
+  const fonts = [
+    { name: 'Standard (Inter)', value: 'Inter' },
+    { name: 'Bold Headline (Oswald)', value: 'Oswald' },
+    { name: 'Elegant (Playfair)', value: 'Playfair Display' },
+    { name: 'Monospace (Roboto Mono)', value: 'Roboto Mono' },
+    { name: 'System Sans', value: 'Arial' },
+    { name: 'System Serif', value: 'Times New Roman' },
+  ];
+
   return (
     <div className="w-full h-full bg-white flex flex-col border-r border-gray-200 overflow-y-auto">
       <div className="p-6 border-b border-gray-100">
@@ -55,7 +64,7 @@ const UIControls: React.FC<Props> = ({ config, onChange, onExport }) => {
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              <Upload size={16} /> 图片
+              <Upload size={16} /> SVG/图片
             </button>
           </div>
         </section>
@@ -67,13 +76,28 @@ const UIControls: React.FC<Props> = ({ config, onChange, onExport }) => {
           </h3>
           
           {config.patternType === PatternType.TEXT ? (
-            <input
-              type="text"
-              value={config.text}
-              onChange={(e) => onChange({ text: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-              placeholder="输入要显示的文字..."
-            />
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={config.text}
+                onChange={(e) => onChange({ text: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                placeholder="输入要显示的文字..."
+              />
+              {/* Font Selection Dropdown */}
+              <div>
+                <label className="text-xs font-medium text-gray-700 block mb-1">选择字体</label>
+                <select
+                  value={config.fontFamily}
+                  onChange={(e) => onChange({ fontFamily: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm bg-white"
+                >
+                  {fonts.map(f => (
+                    <option key={f.value} value={f.value} style={{fontFamily: f.value}}>{f.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
           ) : (
             <div className="w-full">
               <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
@@ -83,11 +107,11 @@ const UIControls: React.FC<Props> = ({ config, onChange, onExport }) => {
                   ) : (
                     <>
                       <Upload className="w-8 h-8 mb-3 text-gray-400" />
-                      <p className="text-xs text-gray-500">点击上传 PNG/JPG</p>
+                      <p className="text-xs text-gray-500">点击上传 SVG/PNG</p>
                     </>
                   )}
                 </div>
-                <input type="file" className="hidden" accept="image/*" onChange={handleFileUpload} />
+                <input type="file" className="hidden" accept="image/*,.svg" onChange={handleFileUpload} />
               </label>
             </div>
           )}
@@ -124,17 +148,36 @@ const UIControls: React.FC<Props> = ({ config, onChange, onExport }) => {
               />
             </div>
 
-            {/* Emboss Depth */}
+            {/* Letter Spacing (Only for Text) */}
+            {config.patternType === PatternType.TEXT && (
+              <div>
+                <div className="flex justify-between mb-1">
+                  <label className="text-xs font-medium text-gray-700">文字间距</label>
+                  <span className="text-xs text-gray-500">{config.letterSpacing}px</span>
+                </div>
+                <input
+                  type="range"
+                  min="-10"
+                  max="50"
+                  step="1"
+                  value={config.letterSpacing}
+                  onChange={(e) => onChange({ letterSpacing: parseInt(e.target.value) })}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                />
+              </div>
+            )}
+
+            {/* Emboss Depth - UPDATED MAX TO 0.6 */}
             <div>
               <div className="flex justify-between mb-1">
                 <label className="text-xs font-medium text-gray-700">浮雕深度 (凸起)</label>
-                <span className="text-xs text-gray-500">{config.embossDepth.toFixed(1)}mm</span>
+                <span className="text-xs text-gray-500">{config.embossDepth.toFixed(2)}mm</span>
               </div>
               <input
                 type="range"
                 min="0.1"
-                max="5"
-                step="0.1"
+                max="0.6" 
+                step="0.05"
                 value={config.embossDepth}
                 onChange={(e) => onChange({ embossDepth: parseFloat(e.target.value) })}
                 className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
