@@ -1,0 +1,5 @@
+{
+  "name": "3D Cylinder Embosser",
+  "description": "A tool to generate 3D cylindrical models with embossed text or patterns for 3D printing.",
+  "requestFramePermissions": []
+}
