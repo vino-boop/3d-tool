@@ -8,18 +8,21 @@ import { AppState, DEFAULT_STATE } from './types';
 const App: React.FC = () => {
   const [config, setConfig] = useState<AppState>(DEFAULT_STATE);
   const [exportFn, setExportFn] = useState<(() => void) | null>(null);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
 
   const handleConfigChange = useCallback((updates: Partial<AppState>) => {
     setConfig(prev => ({ ...prev, ...updates }));
   }, []);
 
   const handleExport = useCallback(() => {
-    if (exportFn) {
+    if (exportFn && !isProcessing) {
       exportFn();
+    } else if (isProcessing) {
+      alert("Please wait for generation to complete.");
     } else {
       alert("Geometry not ready yet.");
     }
-  }, [exportFn]);
+  }, [exportFn, isProcessing]);
 
   // Callback to receive the export trigger from the child component
   const onSetExportFunction = useCallback((fn: () => void) => {
@@ -34,6 +37,7 @@ const App: React.FC = () => {
           config={config} 
           onChange={handleConfigChange} 
           onExport={handleExport}
+          isProcessing={isProcessing}
         />
       </div>
 
@@ -51,15 +55,10 @@ const App: React.FC = () => {
                 <CylinderObject 
                   config={config} 
                   setExportFunction={onSetExportFunction}
+                  onProcessingChange={setIsProcessing}
                 />
               </Center>
             </Stage>
-            {/* 
-              OrbitControls:
-              enableRotate={true} allows manual rotation.
-              autoRotate={false} keeps it fixed as requested by "preview window do not rotate... fixed cylinder" 
-              (Interpreting "don't rotate" as "don't auto-spin", but allow user inspection)
-            */}
             <OrbitControls makeDefault autoRotate={false} />
           </Suspense>
         </Canvas>

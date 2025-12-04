@@ -1,5 +1,4 @@
-
-import React, { useMemo, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { STLExporter } from 'three-stdlib';
 import { AppState, PatternType } from '../types';
@@ -9,12 +8,12 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 interface Props {
   config: AppState;
   setExportFunction: (fn: () => void) => void;
+  onProcessingChange: (isProcessing: boolean) => void;
 }
 
-const CylinderObject: React.FC<Props> = ({ config, setExportFunction }) => {
+const CylinderObject: React.FC<Props> = ({ config, setExportFunction, onProcessingChange }) => {
   const groupRef = useRef<THREE.Group>(null);
   
-  // INCREASE RESOLUTION to 4096 for cleaner text and less aliasing
   const TEXTURE_WIDTH = 4096;
   const TEXTURE_HEIGHT = 4096;
 
@@ -42,9 +41,9 @@ const CylinderObject: React.FC<Props> = ({ config, setExportFunction }) => {
     // Bevel adds to depth. Total Z = depth + 2*bevelThickness.
     const extrudeDepth = height - (2 * bevelThickness);
     
-    // CRITICAL FIX: Increase 'steps' to ensure enough vertices for displacement along the height.
-    // 4 segments per mm for VERY high fidelity and smooth edges.
-    const steps = Math.floor(height * 4);
+    // OPTIMIZATION: Reduce steps to improve performance while maintaining smoothness
+    // 2.5 segments per mm is sufficient for high quality displacement on this scale
+    const steps = Math.floor(height * 2.5);
 
     const extrudeSettings = {
       depth: extrudeDepth,
@@ -52,7 +51,7 @@ const CylinderObject: React.FC<Props> = ({ config, setExportFunction }) => {
       bevelThickness: bevelThickness,
       bevelSize: bevelSize,
       bevelSegments: 2,
-      curveSegments: 400, // Very high resolution for smoothness around the circle
+      curveSegments: 150, // Reduced from 400 to 150 for significant performance gain
       steps: steps 
     };
 
@@ -64,12 +63,11 @@ const CylinderObject: React.FC<Props> = ({ config, setExportFunction }) => {
     // 4. Rotate to stand upright (Extrude is along Z by default)
     geometry.rotateX(Math.PI / 2);
 
-    // 5. Fix UVs for the Outer Shell to allow wrapping
-    // We iterate vertices. If radius is close to outer radius, we apply cylindrical mapping.
+    // 5. Fix UVs for the Outer Shell
     const pos = geometry.attributes.position;
     const uv = geometry.attributes.uv;
     const count = pos.count;
-    const rThreshold = radius * 0.8; // Radius check to distinguish outer shell from inner hole
+    const rThreshold = radius * 0.8;
 
     for (let i = 0; i < count; i++) {
       const x = pos.getX(i);
@@ -79,35 +77,27 @@ const CylinderObject: React.FC<Props> = ({ config, setExportFunction }) => {
       const r = Math.sqrt(x * x + z * z);
       if (r > rThreshold) {
         // Cylindrical Mapping for outer shell
-        const angle = Math.atan2(x, z); // -PI to PI
+        const angle = Math.atan2(x, z);
         let u = (angle / (2 * Math.PI)) + 0.5;
-        // Map Y from -height/2 to height/2 -> 0 to 1
         let v = (y + height / 2) / height;
         uv.setXY(i, u, v);
       }
-      // Inner hole and caps keep their default planar/projected UVs which is fine as we don't displace them.
     }
 
     // 6. Create the Plug (Solid core in the middle)
-    // Sockets are 10mm deep at top and bottom.
-    // Plug height = height - 20 (10mm top + 10mm bottom).
-    const plugHeight = Math.max(0.1, height - 20);
-    // Plug must fill the 15x15 hole.
+    // Sockets are 15mm deep at top and bottom.
+    // Plug height = height - (TopDepth + BottomDepth) = height - 30.
+    const plugHeight = Math.max(0.1, height - 30);
     const plugGeo = new THREE.BoxGeometry(15, plugHeight, 15);
-    // Plug is already centered at 0,0,0
     
-    // 7. Merge them into one solid geometry for easier export/handling
-    // FIX: Convert both to non-indexed to ensure compatibility for mergeGeometries.
-    // This avoids errors if one is indexed and the other is not, or if attribute counts mismatch.
+    // 7. Merge them
     const geometryNonIndexed = geometry.toNonIndexed();
     const plugGeoNonIndexed = plugGeo.toNonIndexed();
 
-    // Clean up original geometries
     geometry.dispose();
     plugGeo.dispose();
 
     const merged = mergeGeometries([geometryNonIndexed, plugGeoNonIndexed]);
-    
     return merged;
   };
 
@@ -128,12 +118,15 @@ const CylinderObject: React.FC<Props> = ({ config, setExportFunction }) => {
     });
   }, [setExportFunction]);
 
-  // Update Geometry Effect
+  // Update Geometry Effect with Debounce
   useEffect(() => {
     let isCancelled = false;
+    let debounceTimer: ReturnType<typeof setTimeout>;
 
     const updateGeometry = async () => {
-      // 1. Generate Height Map (Async now)
+      if (isCancelled) return;
+
+      // 1. Generate Height Map (Async)
       const canvas = await generateHeightMap(
         config.patternType === PatternType.TEXT ? 'text' : 'image',
         config.patternType === PatternType.TEXT ? config.text : (config.imageSrc || ''),
@@ -152,30 +145,36 @@ const CylinderObject: React.FC<Props> = ({ config, setExportFunction }) => {
 
       if (isCancelled) return;
 
-      // 2. Positive Cylinder (Left) - Emboss OUT
-      // Radius = config.cylinderRadius. Base surface is at R. Emboss goes to R + depth.
+      // 2. Positive Cylinder
       const posGeo = buildCylinderGeometry(config.cylinderRadius, config.cylinderHeight, 0);
       if (posGeo) {
         applyDisplacement(posGeo, canvas, config.embossDepth, config.cylinderRadius * 0.9);
         if (!isCancelled) setDisplayGeoPositive(posGeo);
       }
 
-      // 3. Negative Cylinder (Right) - Engrave IN
-      // Radius = config.cylinderRadius + config.embossDepth. 
-      // This allows the "Positive" cylinder (R + Depth) to fit inside this one (Base R + Depth - Depth = R).
+      // 3. Negative Cylinder
       const outerRadius = config.cylinderRadius + config.embossDepth;
       const negGeo = buildCylinderGeometry(outerRadius, config.cylinderHeight, 0);
       if (negGeo) {
-        // Apply negative displacement
         applyDisplacement(negGeo, canvas, -config.embossDepth, outerRadius * 0.9);
         if (!isCancelled) setDisplayGeoNegative(negGeo);
       }
+
+      // Done
+      if (!isCancelled) onProcessingChange(false);
     };
 
-    updateGeometry();
+    // Start loading state immediately
+    onProcessingChange(true);
+
+    // Debounce: Wait 500ms after last change before processing
+    debounceTimer = setTimeout(() => {
+      updateGeometry();
+    }, 500);
 
     return () => {
       isCancelled = true;
+      clearTimeout(debounceTimer);
     };
   }, [
     config.patternType,
@@ -190,7 +189,8 @@ const CylinderObject: React.FC<Props> = ({ config, setExportFunction }) => {
     config.embossDepth,
     config.imageScale,
     config.cylinderRadius,
-    config.cylinderHeight
+    config.cylinderHeight,
+    onProcessingChange
   ]);
 
   const offset = config.cylinderRadius * 2.5 + 20;

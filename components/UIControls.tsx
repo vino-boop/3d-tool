@@ -1,15 +1,15 @@
-
 import React from 'react';
 import { AppState, PatternType } from '../types';
-import { Type, Upload, Download, Sliders } from 'lucide-react';
+import { Type, Upload, Download, Sliders, Loader2 } from 'lucide-react';
 
 interface Props {
   config: AppState;
   onChange: (updates: Partial<AppState>) => void;
   onExport: () => void;
+  isProcessing: boolean;
 }
 
-const UIControls: React.FC<Props> = ({ config, onChange, onExport }) => {
+const UIControls: React.FC<Props> = ({ config, onChange, onExport, isProcessing }) => {
   
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -40,7 +40,7 @@ const UIControls: React.FC<Props> = ({ config, onChange, onExport }) => {
         <p className="text-sm text-gray-500 mt-1">定制您的 3D 打印模型</p>
       </div>
 
-      <div className="flex-1 p-6 space-y-8">
+      <div className="flex-1 p-6 space-y-8 pointer-events-auto">
         
         {/* Mode Selection */}
         <section>
@@ -239,10 +239,24 @@ const UIControls: React.FC<Props> = ({ config, onChange, onExport }) => {
       <div className="p-6 border-t border-gray-200 bg-gray-50">
         <button
           onClick={onExport}
-          className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors shadow-lg hover:shadow-blue-500/30 active:scale-95"
+          disabled={isProcessing}
+          className={`w-full flex items-center justify-center gap-2 font-bold py-3 px-4 rounded-lg transition-all shadow-lg 
+            ${isProcessing 
+              ? 'bg-gray-400 cursor-not-allowed opacity-80' 
+              : 'bg-blue-600 hover:bg-blue-700 text-white hover:shadow-blue-500/30 active:scale-95'
+            }`}
         >
-          <Download size={20} />
-          导出 STL 模型
+          {isProcessing ? (
+            <>
+              <Loader2 className="animate-spin" size={20} />
+              生成中...
+            </>
+          ) : (
+            <>
+              <Download size={20} />
+              导出 STL 模型
+            </>
+          )}
         </button>
         <p className="text-xs text-center text-gray-400 mt-2">适用于所有主流 3D 打印切片软件</p>
       </div>
