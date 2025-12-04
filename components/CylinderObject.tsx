@@ -22,9 +22,13 @@ const CylinderObject: React.FC<Props> = ({ config, setExportFunction, onProcessi
   
   // Helper to build the extruded cylinder with square hole and plug
   const buildCylinderGeometry = (radius: number, height: number, depthOffset: number) => {
+    // FIX: Subtract bevelSize from base radius to ensure the final cylinder diameter is exactly 30mm (2 * radius).
+    // ExtrudeGeometry adds bevelSize to the outer contour.
+    const baseRadius = radius - bevelSize;
+
     // 1. Define Shape: Circle with Square Hole
     const shape = new THREE.Shape();
-    shape.absarc(0, 0, radius, 0, Math.PI * 2, false);
+    shape.absarc(0, 0, baseRadius, 0, Math.PI * 2, false);
 
     const holePath = new THREE.Path();
     // 15x15 Square Hole -> Half width is 7.5
@@ -152,6 +156,13 @@ const CylinderObject: React.FC<Props> = ({ config, setExportFunction, onProcessi
       }
 
       // 3. Negative Cylinder
+      // Fix: Negative cylinder also needs baseRadius adjustment in buildCylinderGeometry, 
+      // but here we just pass the desired Outer Radius. 
+      // If we want negative cylinder INNER radius to be R, and we emboss inwards... 
+      // Wait, standard negative cylinder is "A slightly larger cylinder with engraving inside".
+      // Let's keep the outerRadius logic as is, assuming user wants it larger to fit over something?
+      // Or if it's a mold, it should be solid?
+      // Based on previous code:
       const outerRadius = config.cylinderRadius + config.embossDepth;
       const negGeo = buildCylinderGeometry(outerRadius, config.cylinderHeight, 0);
       if (negGeo) {
