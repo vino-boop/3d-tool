@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { STLExporter } from 'three-stdlib';
+import { STLExporter, mergeBufferGeometries } from 'three-stdlib';
 import { AppState, PatternType } from '../types';
 import { applyDisplacement, generateHeightMap } from '../utils/geometryUtils';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 interface Props {
   config: AppState;
@@ -97,7 +96,7 @@ const CylinderObject: React.FC<Props> = ({ config, setExportFunction, onProcessi
     geometry.dispose();
     plugGeo.dispose();
 
-    const merged = mergeGeometries([geometryNonIndexed, plugGeoNonIndexed]);
+    const merged = mergeBufferGeometries([geometryNonIndexed, plugGeoNonIndexed]);
     return merged;
   };
 
